@@ -16,6 +16,33 @@ spring:
       hibernate:
         format_sql: true
 
+# Swagger/OpenAPI Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+    enabled: true
+
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    try-it-out-enabled: true
+    filter: true
+
+  show-actuator: false
+
+  # Group APIs by controller
+  group-configs:
+    - group: authentication
+      display-name: Authentication APIs
+      paths-to-match: /api/v1/auth/**
+
+    - group: users
+      display-name: User Management APIs
+      paths-to-match: /api/v1/users/**
+
+
 server:
   port: 8080
 
