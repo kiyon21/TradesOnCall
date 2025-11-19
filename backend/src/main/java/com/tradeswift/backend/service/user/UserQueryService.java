@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import static com.tradeswift.backend.service.user.UserService.convertToResponse;
+import static com.tradeswift.backend.service.user.UserService.convertToUserResponse;
 
 @Service
 @RequiredArgsConstructor
@@ -27,7 +27,7 @@ public class UserQueryService {
     public List<UserResponse> getAllUsers(){
         List<UserResponse> responseList = new ArrayList<>();
         for(User user : userRepository.findAll()) {
-            responseList.add(convertToResponse(user));
+            responseList.add(convertToUserResponse(user));
         }
         return responseList;
     }
@@ -38,11 +38,11 @@ public class UserQueryService {
      * @return UserResponse
      */
     public UserResponse getUserById(UUID id){
-        if(userRepository.findById(id).isEmpty()) {
+        if(!userRepository.existsById(id)) {
             throw new ResourceNotFoundException("User", "id", id.toString());
         }
 
-        return convertToResponse(userRepository.findById(id).get());
+        return convertToUserResponse(userRepository.findById(id).get());
     }
 
     /**
@@ -55,7 +55,7 @@ public class UserQueryService {
             throw new ResourceNotFoundException("User", "phone", phone);
         }
 
-        return convertToResponse(userRepository.findByPhone(phone).get());
+        return convertToUserResponse(userRepository.findByPhone(phone).get());
     }
 
     /**
@@ -67,7 +67,8 @@ public class UserQueryService {
         if(userRepository.findByEmail(email).isEmpty()) {
             throw new ResourceNotFoundException("User", "email", email);
         }
-        return convertToResponse(userRepository.findByEmail(email).get());
+        return convertToUserResponse(userRepository.findByEmail(email).get());
     }
+
 
 }

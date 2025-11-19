@@ -1,6 +1,8 @@
 package com.tradeswift.backend.security;
 
+import com.tradeswift.backend.exception.BlacklistedTokenException;
 import com.tradeswift.backend.model.entity.User;
+import com.tradeswift.backend.repository.RefreshTokenRepository;
 import com.tradeswift.backend.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,6 +30,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
 
     @Override
     protected void doFilterInternal(
@@ -40,9 +43,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String jwt = extractJwtFromRequest(request);
 
             // Validate token
-            if (StringUtils.hasText(jwt) && jwtTokenProvider.validateToken(jwt)) {
+            if (StringUtils.hasText(jwt) && jwtTokenProvider.validateAccessToken(jwt)) {
                 // Get user ID from token
-                UUID userId = jwtTokenProvider.getUserIdFromToken(jwt);
+                UUID userId = jwtTokenProvider.getUserIdFromAccessToken(jwt);
 
                 // Load user from database
                 User user = userRepository.findById(userId)
@@ -82,7 +85,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String bearerToken = request.getHeader("Authorization");
 
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);  // Remove "Bearer " prefix
+            String token = bearerToken.substring(7);
+            if(refreshTokenRepository.existsByToken(token)) {
+                throw new BlacklistedTokenException("Token has been logged out and is no longer valid.");
+            }
+            return token;
         }
 
         return null;

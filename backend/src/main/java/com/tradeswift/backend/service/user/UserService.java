@@ -1,10 +1,7 @@
 package com.tradeswift.backend.service.user;
 
-import com.tradeswift.backend.exception.DuplicateResourceException;
-import com.tradeswift.backend.model.dto.request.RegisterRequest;
 import com.tradeswift.backend.model.dto.response.UserResponse;
 import com.tradeswift.backend.model.entity.User;
-import com.tradeswift.backend.model.enums.UserStatus;
 import com.tradeswift.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -20,7 +17,7 @@ public class UserService {
      * @param user
      * @return UserResponse
      */
-    public static UserResponse convertToResponse(User user) {
+    public static UserResponse convertToUserResponse(User user) {
 
         return UserResponse.builder()
                 .userId(user.getUserId())

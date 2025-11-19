@@ -53,6 +53,21 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
     }
 
+    // Add this method
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidTokenException(
+            InvalidTokenException ex,
+            WebRequest request
+    ) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", false);
+        response.put("message", ex.getMessage());
+        response.put("timestamp", LocalDateTime.now());
+        response.put("path", request.getDescription(false).replace("uri=", ""));
+
+        return new ResponseEntity<>(response, HttpStatus.UNAUTHORIZED);
+    }
+
     // Handle BadRequestException
     @ExceptionHandler(BadRequestException.class)
     public ResponseEntity<Map<String, Object>> handleBadRequestException(

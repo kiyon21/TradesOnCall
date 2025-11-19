@@ -1,6 +1,7 @@
 package com.tradeswift.backend.security;
 
 import com.tradeswift.backend.config.JwtConfig;
+import com.tradeswift.backend.exception.InvalidTokenException;
 import com.tradeswift.backend.model.entity.User;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
@@ -23,9 +24,9 @@ public class JwtTokenProvider {
     /**
      * Generate JWT token from User
      */
-    public String generateToken(User user) {
+    public String generateAccessToken(User user) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtConfig.getExpirationMs());
+        Date expiryDate = new Date(now.getTime() + jwtConfig.getAccessExpirationMs());
 
         return Jwts.builder()
                 .subject(user.getUserId().toString())
@@ -34,16 +35,29 @@ public class JwtTokenProvider {
                 .claim("userType", user.getUserType().toString())
                 .issuedAt(now)
                 .expiration(expiryDate)
-                .signWith(getSigningKey())
+                .signWith(getAccessSigningKey())
+                .compact();
+    }
+
+    public String generateRefreshToken(User user) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + jwtConfig.getRefreshExpirationMs());
+
+        return Jwts.builder()
+                .subject(user.getUserId().toString())
+                .claim("type", "refresh")
+                .issuedAt(new Date())
+                .expiration(expiryDate)
+                .signWith(getRefreshSigningKey())
                 .compact();
     }
 
     /**
      * Get user ID from JWT token
      */
-    public UUID getUserIdFromToken(String token) {
+    public UUID getUserIdFromAccessToken(String token) {
         Claims claims = Jwts.parser()
-                .verifyWith(getSigningKey())
+                .verifyWith(getAccessSigningKey())
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
@@ -52,12 +66,24 @@ public class JwtTokenProvider {
     }
 
     /**
-     * Validate JWT token
+     * Get expiration from JWT token
      */
-    public boolean validateToken(String token) {
+    public Date getExpirationDateFromAccessToken(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(getRefreshSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+        return claims.getExpiration();
+    }
+
+    /**
+     * Validate JWT Access token
+     */
+    public boolean validateAccessToken(String token) {
         try {
             Jwts.parser()
-                    .verifyWith(getSigningKey())
+                    .verifyWith(getAccessSigningKey())
                     .build()
                     .parseSignedClaims(token);
             return true;
@@ -73,11 +99,52 @@ public class JwtTokenProvider {
         return false;
     }
 
+
+
+    /**
+     * Get user ID from REFRESH token and validate it
+     */
+    public String validateRefreshToken(String token) {
+        try {
+            Claims claims = getRefreshClaims(token);
+
+            // Verify it's a refresh token
+            if (!"refresh".equals(claims.get("type"))) {
+                throw new InvalidTokenException("Token is not a refresh token");
+            }
+
+            return claims.getSubject();  // Returns user ID
+        } catch (ExpiredJwtException ex) {
+            throw new InvalidTokenException("Refresh token has expired");
+        } catch (Exception ex) {
+            throw new InvalidTokenException("Invalid refresh token");
+        }
+    }
+
+    /**
+     * Get claims from token
+     */
+    private Claims getRefreshClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(getRefreshSigningKey())
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
     /**
      * Get signing key from secret
      */
-    private SecretKey getSigningKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(jwtConfig.getSecret());
+    private SecretKey getAccessSigningKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(jwtConfig.getAccessTokenSecret());
+        return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    /**
+     * Get signing key from secret
+     */
+    private SecretKey getRefreshSigningKey() {
+        byte[] keyBytes = Decoders.BASE64.decode(jwtConfig.getAccessTokenSecret());
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }
