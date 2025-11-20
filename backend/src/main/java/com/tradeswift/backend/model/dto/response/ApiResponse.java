@@ -1,5 +1,6 @@
 package com.tradeswift.backend.model.dto.response;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -12,12 +13,19 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Generic API response wrapper")
 public class ApiResponse<T> {
+    @Schema(description = "Indicates if the request was successful", example = "true")
     private Boolean success;
+    
+    @Schema(description = "Response message", example = "Operation completed successfully")
     private String message;
+    
+    @Schema(description = "Response data payload")
     private T data;
 
     @Builder.Default
+    @Schema(description = "Response timestamp", example = "2024-01-15T10:30:00")
     private LocalDateTime timeStamp = LocalDateTime.now();
 
     // static helper

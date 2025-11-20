@@ -34,12 +34,16 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints (no authentication required)
                         .requestMatchers(
-                                "/api/v1/auth/**",           // Login, register
+                                "/api/v1/auth/**",           // Login, register, refresh
                                 "/api/v1/users/register",    // User registration
+                                "/api/test/**",              // Test endpoints
                                 "/swagger-ui/**",            // Swagger UI
-                                "/v3/api-docs/**",           // OpenAPI docs
+                                "/swagger-ui.html",          // Swagger UI HTML
+                                "/v3/api-docs/**",           // OpenAPI 3.0 docs
                                 "/api-docs/**",              // API docs
-                                "/swagger-ui.html"           // Swagger UI HTML
+                                "/swagger-resources/**",     // Swagger resources
+                                "/webjars/**",               // WebJars for Swagger UI
+                                "/favicon.ico"               // Favicon
                         ).permitAll()
 
                         // All other endpoints require authentication
