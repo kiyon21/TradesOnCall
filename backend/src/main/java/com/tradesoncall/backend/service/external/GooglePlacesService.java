@@ -3,14 +3,21 @@ package com.tradesoncall.backend.service.external;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tradesoncall.backend.exception.ExternalServiceException;
 import com.tradesoncall.backend.model.dto.response.ServiceSearchResponse;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -21,16 +28,28 @@ public class GooglePlacesService {
     @Value("${google.places.api-key}")
     private String apiKey;
 
-    @Value("${google.places.base-url}")
-    private String baseUrl;
-
     private final WebClient.Builder webClientBuilder;
+
+    private static final String PLACES_BASE_URL = "https://places.googleapis.com/v1";
+    private static final String GEOCODING_BASE_URL = "https://maps.googleapis.com/maps/api";
+
+    // Supported place types for Nearby Search
+    private static final Set<String> SUPPORTED_NEARBY_TYPES = Set.of(
+            "plumber",
+            "electrician",
+            "roofing_contractor",
+            "general_contractor",
+            "locksmith",
+            "painter",
+            "moving_company",
+            "pest_control_service"
+    );
 
     /**
      * Search for service providers near a location
      */
     public List<ServiceSearchResponse> searchNearby(
-            String query,
+            String serviceType,  // e.g., "plumber", "electrician", "hvac"
             String location,
             Integer radiusMeters,
             Integer maxResults
@@ -46,16 +65,20 @@ public class GooglePlacesService {
             double lat = geocoding.getResults().get(0).getGeometry().getLocation().getLat();
             double lng = geocoding.getResults().get(0).getGeometry().getLocation().getLng();
 
-            // Step 2: Search for places near those coordinates
-            PlacesSearchResponse placesResponse = searchPlaces(query, lat, lng, radiusMeters);
+            // Step 2: Search for places using appropriate method
+            List<Place> places;
+            if (SUPPORTED_NEARBY_TYPES.contains(serviceType.toLowerCase())) {
+                places = searchNearbyPlaces(serviceType, lat, lng, radiusMeters, maxResults);
+            } else {
+                places = searchTextPlaces(serviceType, lat, lng, radiusMeters, maxResults);
+            }
 
-            if (placesResponse == null || placesResponse.getResults() == null) {
+            if (places == null || places.isEmpty()) {
                 return List.of();
             }
 
-            // Step 3: Convert to our DTO and limit results
-            return placesResponse.getResults().stream()
-                    .limit(maxResults)
+            // Step 3: Convert to our DTO
+            return places.stream()
                     .map(place -> convertToServiceResponse(place, lat, lng))
                     .collect(Collectors.toList());
 
@@ -70,7 +93,7 @@ public class GooglePlacesService {
      */
     private GeocodingResponse geocodeLocation(String location) {
         WebClient webClient = webClientBuilder
-                .baseUrl("https://maps.googleapis.com/maps/api")
+                .baseUrl(GEOCODING_BASE_URL)
                 .build();
 
         return webClient.get()
@@ -85,33 +108,118 @@ public class GooglePlacesService {
     }
 
     /**
-     * Search for places using Places API
+     * Search using Nearby Search (New) API - for supported types
      */
-    private PlacesSearchResponse searchPlaces(
-            String query,
+    private List<Place> searchNearbyPlaces(
+            String placeType,
             double lat,
             double lng,
-            Integer radiusMeters
+            Integer radiusMeters,
+            Integer maxResults
     ) {
         WebClient webClient = webClientBuilder
-                .baseUrl(baseUrl)
+                .baseUrl(PLACES_BASE_URL)
                 .build();
 
-        return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/nearbysearch/json")
-                        .queryParam("location", lat + "," + lng)
-                        .queryParam("radius", radiusMeters)
-                        .queryParam("keyword", query)
-                        .queryParam("key", apiKey)
+        NearbySearchRequest request = NearbySearchRequest.builder()
+                .includedTypes(List.of(placeType))
+                .maxResultCount(maxResults != null ? maxResults : 20)
+                .locationRestriction(LocationRestriction.builder()
+                        .circle(Circle.builder()
+                                .center(Center.builder()
+                                        .latitude(lat)
+                                        .longitude(lng)
+                                        .build())
+                                .radius(radiusMeters != null ? radiusMeters.doubleValue() : 8000.0)
+                                .build())
                         .build())
+                .rankPreference("DISTANCE")
+                .build();
+
+        PlacesSearchResponse response = webClient.post()
+                .uri("/places:searchNearby")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Goog-Api-Key", apiKey)
+                .header("X-Goog-FieldMask", getFieldMask())
+                .bodyValue(request)
                 .retrieve()
                 .bodyToMono(PlacesSearchResponse.class)
+                .onErrorResume(e -> {
+                    log.error("Error calling Nearby Search API", e);
+                    return Mono.empty();
+                })
                 .block();
+
+        return response != null ? response.getPlaces() : List.of();
     }
 
     /**
-     * Convert Google Place to our DTO
+     * Search using Text Search API - for unsupported types like HVAC
+     */
+    private List<Place> searchTextPlaces(
+            String query,
+            double lat,
+            double lng,
+            Integer radiusMeters,
+            Integer maxResults
+    ) {
+        WebClient webClient = webClientBuilder
+                .baseUrl(PLACES_BASE_URL)
+                .build();
+
+        TextSearchRequest request = TextSearchRequest.builder()
+                .textQuery(query + " service")
+                .maxResultCount(maxResults != null ? maxResults : 20)
+                .locationBias(LocationBias.builder()
+                        .circle(Circle.builder()
+                                .center(Center.builder()
+                                        .latitude(lat)
+                                        .longitude(lng)
+                                        .build())
+                                .radius(radiusMeters != null ? radiusMeters.doubleValue() : 8000.0)
+                                .build())
+                        .build())
+                .build();
+
+        PlacesSearchResponse response = webClient.post()
+                .uri("/places:searchText")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header("X-Goog-Api-Key", apiKey)
+                .header("X-Goog-FieldMask", getFieldMask())
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(PlacesSearchResponse.class)
+                .onErrorResume(e -> {
+                    log.error("Error calling Text Search API", e);
+                    return Mono.empty();
+                })
+                .block();
+
+        return response != null ? response.getPlaces() : List.of();
+    }
+
+    /**
+     * Define which fields to return from the API
+     */
+    private String getFieldMask() {
+        return "places.displayName," +
+                "places.formattedAddress," +
+                "places.location," +
+                "places.rating," +
+                "places.userRatingCount," +
+                "places.nationalPhoneNumber," +
+                "places.websiteUri," +
+                "places.regularOpeningHours," +
+                "places.currentOpeningHours," +
+                "places.businessStatus," +
+                "places.types," +
+                "places.priceLevel," +
+                "places.photos," +
+                "places.id";
+    }
+
+    /**
+     * Convert Google Place (New API) to our DTO
      */
     private ServiceSearchResponse convertToServiceResponse(
             Place place,
@@ -119,30 +227,87 @@ public class GooglePlacesService {
             double searchLng
     ) {
         // Calculate distance
-        double distance = calculateDistance(
-                searchLat, searchLng,
-                place.getGeometry().getLocation().getLat(),
-                place.getGeometry().getLocation().getLng()
-        );
+        double distanceMiles = 0.0;
+        if (place.getLocation() != null) {
+            distanceMiles = calculateDistance(
+                    searchLat, searchLng,
+                    place.getLocation().getLatitude(),
+                    place.getLocation().getLongitude()
+            );
+        }
+
+        // Extract business name
+        String businessName = place.getDisplayName() != null
+                ? place.getDisplayName().getText()
+                : "Unknown";
+
+        // Check if currently open
+        Boolean openNow = null;
+        if (place.getCurrentOpeningHours() != null) {
+            openNow = place.getCurrentOpeningHours().getOpenNow();
+        }
+
+        // Get photo URLs
+        List<String> photoUrls = place.getPhotos() != null
+                ? place.getPhotos().stream()
+                .limit(1)
+                .map(photo -> buildPhotoUrl(photo.getName()))
+                .collect(Collectors.toList())
+                : List.of();
 
         return ServiceSearchResponse.builder()
-                .name(place.getName())
-                .address(place.getVicinity())
+                .name(businessName)
+                .address(place.getFormattedAddress())
+                .phoneNumber(place.getNationalPhoneNumber())
                 .rating(place.getRating())
-                .totalReviews(place.getUserRatingsTotal())
+                .totalReviews(place.getUserRatingCount())
                 .priceLevel(place.getPriceLevel())
-                .openNow(place.getOpeningHours() != null && place.getOpeningHours().getOpenNow())
-                .distanceMiles(distance)
-                .latitude(place.getGeometry().getLocation().getLat())
-                .longitude(place.getGeometry().getLocation().getLng())
-                .placeId(place.getPlaceId())
-                .googleMapsUrl("https://www.google.com/maps/place/?q=place_id:" + place.getPlaceId())
+                .openNow(openNow)
+                .distanceMiles(distanceMiles)
+                .website(place.getWebsiteUri())
+                .googleMapsUrl(buildGoogleMapsUrl(place))
                 .serviceTypes(place.getTypes())
+                .latitude(place.getLocation() != null ? place.getLocation().getLatitude() : null)
+                .longitude(place.getLocation() != null ? place.getLocation().getLongitude() : null)
+                .placeId(extractPlaceId(place.getId()))
+                .photoUrls(photoUrls)
                 .build();
     }
 
     /**
-     * Calculate distance between two coordinates (Haversine formula)
+     * Build Google Maps URL from place
+     */
+    private String buildGoogleMapsUrl(Place place) {
+        if (place.getId() != null) {
+            String placeId = extractPlaceId(place.getId());
+            return "https://www.google.com/maps/place/?q=place_id:" + placeId;
+        }
+        return null;
+    }
+
+    /**
+     * Extract place ID from resource name (format: "places/ChIJ...")
+     */
+    private String extractPlaceId(String resourceName) {
+        if (resourceName != null && resourceName.startsWith("places/")) {
+            return resourceName.substring(7);
+        }
+        return resourceName;
+    }
+
+    /**
+     * Build photo URL from photo resource name
+     */
+    private String buildPhotoUrl(String photoResourceName) {
+        return String.format(
+                "https://places.googleapis.com/v1/%s/media?maxHeightPx=400&maxWidthPx=400&key=%s",
+                photoResourceName,
+                apiKey
+        );
+    }
+
+    /**
+     * Calculate distance between two coordinates in miles (Haversine formula)
      */
     private double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
         final int R = 3959; // Radius of the earth in miles
@@ -157,7 +322,64 @@ public class GooglePlacesService {
         return R * c; // Distance in miles
     }
 
-    // ===== Google Places API Response DTOs =====
+    // ===== Request DTOs =====
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class NearbySearchRequest {
+        private List<String> includedTypes;
+        private Integer maxResultCount;
+        private LocationRestriction locationRestriction;
+        private String rankPreference;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class TextSearchRequest {
+        private String textQuery;
+        private Integer maxResultCount;
+        private LocationBias locationBias;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class LocationRestriction {
+        private Circle circle;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class LocationBias {
+        private Circle circle;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class Circle {
+        private Center center;
+        private Double radius;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    private static class Center {
+        private Double latitude;
+        private Double longitude;
+    }
+
+    // ===== Response DTOs =====
 
     @Data
     private static class GeocodingResponse {
@@ -167,29 +389,6 @@ public class GooglePlacesService {
     @Data
     private static class GeocodingResult {
         private Geometry geometry;
-    }
-
-    @Data
-    private static class PlacesSearchResponse {
-        private List<Place> results;
-        private String status;
-    }
-
-    @Data
-    private static class Place {
-        private String name;
-        @JsonProperty("place_id")
-        private String placeId;
-        private String vicinity;
-        private Double rating;
-        @JsonProperty("user_ratings_total")
-        private Integer userRatingsTotal;
-        @JsonProperty("price_level")
-        private Integer priceLevel;
-        @JsonProperty("opening_hours")
-        private OpeningHours openingHours;
-        private Geometry geometry;
-        private List<String> types;
     }
 
     @Data
@@ -204,8 +403,48 @@ public class GooglePlacesService {
     }
 
     @Data
-    private static class OpeningHours {
-        @JsonProperty("open_now")
+    private static class PlacesSearchResponse {
+        private List<Place> places;
+    }
+
+    @Data
+    private static class Place {
+        private String id;  // Resource name: "places/ChIJ..."
+        private DisplayName displayName;
+        private String formattedAddress;
+        private PlaceLocation location;
+        private Double rating;
+        private Integer userRatingCount;
+        private String nationalPhoneNumber;
+        private String websiteUri;
+        private String businessStatus;
+        private Integer priceLevel;
+        private List<String> types;
+        private CurrentOpeningHours currentOpeningHours;
+        private List<Photo> photos;
+    }
+
+    @Data
+    private static class DisplayName {
+        private String text;
+        private String languageCode;
+    }
+
+    @Data
+    private static class PlaceLocation {
+        private Double latitude;
+        private Double longitude;
+    }
+
+    @Data
+    private static class CurrentOpeningHours {
         private Boolean openNow;
+    }
+
+    @Data
+    private static class Photo {
+        private String name;  // Resource name for photo
+        private Integer widthPx;
+        private Integer heightPx;
     }
 }

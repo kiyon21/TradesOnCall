@@ -3,8 +3,10 @@ package com.tradesoncall.backend.controller;
 import com.tradesoncall.backend.model.dto.request.ServiceSearchRequest;
 import com.tradesoncall.backend.model.dto.response.ApiResponse;
 import com.tradesoncall.backend.model.dto.response.SearchResultsResponse;
+import com.tradesoncall.backend.model.dto.response.UserResponse;
 import com.tradesoncall.backend.security.JwtTokenProvider;
-import com.tradesoncall.backend.service.SearchService;
+import com.tradesoncall.backend.service.search.SearchService;
+import com.tradesoncall.backend.service.user.UserQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -14,9 +16,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/search")
@@ -25,9 +28,11 @@ import java.util.UUID;
 public class SearchController {
 
     private final SearchService searchService;
+    private final UserQueryService userQueryService;
     private final JwtTokenProvider jwtTokenProvider;
 
     @PostMapping("/services")
+    @SecurityRequirement(name = "bearerAuth")
     @Operation(
             summary = "Search for service providers",
             description = "Search for tradespeople and service providers near a location",
@@ -53,15 +58,16 @@ public class SearchController {
             )
     })
     public ResponseEntity<ApiResponse<SearchResultsResponse>> searchServices(
-            @RequestHeader("Authorization") String authHeader,
-            @Valid @RequestBody ServiceSearchRequest request
+            @Valid @RequestBody ServiceSearchRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
     ) {
+        String phone = userDetails.getUsername();
         // Extract user ID from JWT token
-        String token = authHeader.substring(7); // Remove "Bearer " prefix
-        UUID userId = jwtTokenProvider.getUserIdFromAccessToken(token);
+        // Get user by phone
+        UserResponse user = userQueryService.getUserByPhone(phone);
 
         // Perform search
-        SearchResultsResponse results = searchService.searchServices(userId, request);
+        SearchResultsResponse results = searchService.searchServices(user.getUserId(), request);
 
         ApiResponse<SearchResultsResponse> response = ApiResponse.success(
                 "Search completed successfully",

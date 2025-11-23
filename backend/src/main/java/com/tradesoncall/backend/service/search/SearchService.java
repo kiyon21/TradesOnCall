@@ -1,4 +1,4 @@
-package com.tradesoncall.backend.service;
+package com.tradesoncall.backend.service.search;
 
 import com.tradesoncall.backend.model.dto.request.ServiceSearchRequest;
 import com.tradesoncall.backend.model.dto.response.SearchResultsResponse;

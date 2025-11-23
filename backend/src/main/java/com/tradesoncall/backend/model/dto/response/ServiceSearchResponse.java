@@ -52,4 +52,7 @@ public class ServiceSearchResponse {
 
     @Schema(description = "Google Place ID")
     private String placeId;
+
+    @Schema(description = "Photo URLs")
+    private List<String> photoUrls;
 }
