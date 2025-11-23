@@ -3,9 +3,9 @@ version: '3.8'
 services:
   postgres:
     image: postgres:alpine
-    container_name: tradeswift-postgres
+    container_name: tradesoncall-postgres
     environment:
-      POSTGRES_DB: tradeswift
+      POSTGRES_DB: tradesoncall
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:

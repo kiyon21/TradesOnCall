@@ -1,9 +1,9 @@
 spring:
   application:
-    name: tradeswift-backend
+    name: tradesoncall-backend
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/tradeswift
+    url: jdbc:postgresql://localhost:5432/tradesoncall
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
@@ -47,4 +47,4 @@ server:
 
 logging:
   level:
-    com.tradeswift.backend: DEBUG
+    com.tradesoncall.backend: DEBUG
